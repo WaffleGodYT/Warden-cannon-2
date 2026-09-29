@@ -1,0 +1,21 @@
+name: WardenBeam
+version: 1.1.0
+main: com.wafflegod.wardenbeam.WardenBeamPlugin
+api-version: '1.21'
+description: Craftable Warden Beam Rod that fires sonic booms.
+commands:
+  wardenbeam:
+    description: Fire a warden beam at a player, or give yourself the rod.
+    usage: /wardenbeam [player] [damage] | /wardenbeam give [player]
+    aliases: [wbeam, sonicboom]
+    permission: wardenbeam.use
+permissions:
+  wardenbeam.use:
+    description: Allows /wardenbeam (fire at a player)
+    default: op
+  wardenbeam.give:
+    description: Allows /wardenbeam give
+    default: op
+  wardenbeam.item:
+    description: Allows using the Warden Beam Rod
+    default: true

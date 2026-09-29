@@ -1,0 +1,8 @@
+# Damage dealt by the Warden Beam Rod (10 = 5 hearts, same as a vanilla warden)
+damage: 10.0
+
+# Max beam distance in blocks (vanilla warden is 15)
+range: 20.0
+
+# Delay between shots with the rod
+cooldown-seconds: 3.0
