@@ -13,7 +13,8 @@ jobs:
           java-version: '21'
           cache: maven
       - run: mvn -B package
+        working-directory: WardenBeam
       - uses: actions/upload-artifact@v4
         with:
           name: WardenBeam-jar
-          path: target/WardenBeam.jar
+          path: WardenBeam/target/WardenBeam.jar
