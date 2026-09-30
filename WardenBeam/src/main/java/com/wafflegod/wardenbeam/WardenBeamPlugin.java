@@ -11,6 +11,8 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -31,6 +33,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
@@ -51,13 +55,19 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
     private double damage;
     private double range;
     private long cooldownMs;
+    private boolean armorScaling;
+    private double armorEffectiveness;
+    private boolean resistanceScaling;
 
     // ------------------------------------------------------------------ lifecycle
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
-        damage = getConfig().getDouble("damage", 10.0);
+        damage = getConfig().getDouble("damage", 6.0);
+        armorScaling = getConfig().getBoolean("armor-scaling", true);
+        armorEffectiveness = Math.min(1.0, Math.max(0.0, getConfig().getDouble("armor-effectiveness", 1.0)));
+        resistanceScaling = getConfig().getBoolean("resistance-scaling", true);
         range = getConfig().getDouble("range", 20.0);
         cooldownMs = (long) (getConfig().getDouble("cooldown-seconds", 3.0) * 1000);
 
@@ -91,7 +101,7 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
         meta.lore(List.of(
                 Component.text("Right-click to fire a sonic boom.", NamedTextColor.GRAY)
                         .decoration(TextDecoration.ITALIC, false),
-                Component.text("Armor won't save you.", NamedTextColor.DARK_GRAY)
+                Component.text("Armor helps, but not completely.", NamedTextColor.DARK_GRAY)
                         .decoration(TextDecoration.ITALIC, false)));
         meta.setUnbreakable(true);
         meta.setEnchantmentGlintOverride(true);
@@ -185,9 +195,32 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
                     .withCausingEntity(p)
                     .withDirectEntity(p)
                     .build();
-            victim.damage(damage, source);
+            victim.damage(scaleDamage(victim, damage), source);
             victim.setVelocity(dir.clone().multiply(2.0).setY(0.5));
         }
+    }
+
+    /** Sonic boom normally ignores armor and Resistance, so shrink the damage ourselves using vanilla's armor formula. */
+    private double scaleDamage(LivingEntity victim, double dmg) {
+        if (!armorScaling) return dmg;
+
+        double armor = attributeValue(victim, Attribute.ARMOR);
+        double toughness = attributeValue(victim, Attribute.ARMOR_TOUGHNESS);
+        double reduction = Math.min(20.0, Math.max(armor / 5.0, armor - dmg / (2.0 + toughness / 4.0))) / 25.0;
+        dmg *= 1.0 - reduction * armorEffectiveness;
+
+        if (resistanceScaling) {
+            PotionEffect resistance = victim.getPotionEffect(PotionEffectType.RESISTANCE);
+            if (resistance != null) {
+                dmg *= Math.max(0.0, 1.0 - 0.2 * (resistance.getAmplifier() + 1));
+            }
+        }
+        return dmg;
+    }
+
+    private double attributeValue(LivingEntity entity, Attribute attribute) {
+        AttributeInstance instance = entity.getAttribute(attribute);
+        return instance == null ? 0.0 : instance.getValue();
     }
 
     private void drawBeam(World world, Location start, Location end) {
@@ -280,7 +313,7 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
             world.playSound(start, Sound.ENTITY_WARDEN_SONIC_BOOM, 3.0f, 1.0f);
             world.playSound(end, Sound.ENTITY_WARDEN_SONIC_BOOM, 3.0f, 1.0f);
 
-            target.damage(dmg, DamageSource.builder(DamageType.SONIC_BOOM).build());
+            target.damage(scaleDamage(target, dmg), DamageSource.builder(DamageType.SONIC_BOOM).build());
             target.setVelocity(dir.clone().multiply(2.0).setY(0.5));
         }, CHARGE_TICKS);
     }
