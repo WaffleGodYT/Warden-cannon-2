@@ -11,9 +11,9 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
-import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
@@ -33,9 +33,9 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
-import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 
@@ -43,6 +43,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.stream.Stream;
 
 public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, Listener {
 
@@ -64,16 +66,17 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
     @Override
     public void onEnable() {
         saveDefaultConfig();
-        damage = getConfig().getDouble("damage", 12.0);
-        armorScaling = getConfig().getBoolean("armor-scaling", true);
-        armorEffectiveness = Math.min(1.0, Math.max(0.0, getConfig().getDouble("armor-effectiveness", 1.0)));
-        resistanceScaling = getConfig().getBoolean("resistance-scaling", true);
-        range = getConfig().getDouble("range", 20.0);
-        cooldownMs = (long) (getConfig().getDouble("cooldown-seconds", 3.0) * 1000);
+        loadSettings();
 
         rodKey = new NamespacedKey(this, "warden_beam_rod");
         recipeKey = new NamespacedKey(this, "warden_beam_rod_recipe");
-        registerRecipe();
+
+        boolean registered = registerRecipe();
+        if (registered) {
+            getLogger().info("Warden Beam Rod recipe registered OK.");
+        } else {
+            getLogger().severe("Warden Beam Rod recipe did NOT register. See any error above this line.");
+        }
 
         getServer().getPluginManager().registerEvents(this, this);
         PluginCommand cmd = getCommand("wardenbeam");
@@ -82,12 +85,23 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
             cmd.setTabCompleter(this);
         }
 
-        for (Player p : Bukkit.getOnlinePlayers()) p.discoverRecipe(recipeKey);
+        if (registered) {
+            for (Player p : Bukkit.getOnlinePlayers()) p.discoverRecipe(recipeKey);
+        }
     }
 
     @Override
     public void onDisable() {
         Bukkit.removeRecipe(recipeKey);
+    }
+
+    private void loadSettings() {
+        damage = getConfig().getDouble("damage", 6.0);
+        range = getConfig().getDouble("range", 20.0);
+        cooldownMs = (long) (getConfig().getDouble("cooldown-seconds", 3.0) * 1000);
+        armorScaling = getConfig().getBoolean("armor-scaling", true);
+        armorEffectiveness = Math.min(1.0, Math.max(0.0, getConfig().getDouble("armor-effectiveness", 1.0)));
+        resistanceScaling = getConfig().getBoolean("resistance-scaling", true);
     }
 
     // ------------------------------------------------------------------ item + recipe
@@ -118,19 +132,34 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
                 && item.getItemMeta().getPersistentDataContainer().has(rodKey, PersistentDataType.BYTE);
     }
 
-    private void registerRecipe() {
-        // S C S      S = Sculk            C = Sculk Catalyst
-        // T N H      T = Sculk Sensor     N = Nether Star     H = Sculk Shrieker
-        // S R S      R = Fishing Rod
-        ShapedRecipe recipe = new ShapedRecipe(recipeKey, createRod());
-        recipe.shape("SCS", "TNH", "SRS");
-        recipe.setIngredient('S', Material.SCULK);
-        recipe.setIngredient('C', Material.SCULK_CATALYST);
-        recipe.setIngredient('T', Material.SCULK_SENSOR);
-        recipe.setIngredient('H', Material.SCULK_SHRIEKER);
-        recipe.setIngredient('N', Material.NETHER_STAR);
-        recipe.setIngredient('R', Material.FISHING_ROD);
-        Bukkit.addRecipe(recipe);
+    /**
+     * Registers the crafting recipe and reports whether it really exists afterwards.
+     *
+     *   S C S      S = Sculk            C = Sculk Catalyst
+     *   T N H      T = Sculk Sensor     N = Nether Star     H = Sculk Shrieker
+     *   S R S      R = Fishing Rod
+     */
+    private boolean registerRecipe() {
+        try {
+            Bukkit.removeRecipe(recipeKey); // clear any stale copy first
+
+            ShapedRecipe recipe = new ShapedRecipe(recipeKey, createRod());
+            recipe.shape("SCS", "TNH", "SRS");
+            recipe.setIngredient('S', Material.SCULK);
+            recipe.setIngredient('C', Material.SCULK_CATALYST);
+            recipe.setIngredient('T', Material.SCULK_SENSOR);
+            recipe.setIngredient('H', Material.SCULK_SHRIEKER);
+            recipe.setIngredient('N', Material.NETHER_STAR);
+            recipe.setIngredient('R', Material.FISHING_ROD);
+
+            boolean added = Bukkit.addRecipe(recipe);
+            boolean exists = Bukkit.getRecipe(recipeKey) != null;
+            if (!added) getLogger().warning("Bukkit.addRecipe returned false.");
+            return added && exists;
+        } catch (Exception ex) {
+            getLogger().log(Level.SEVERE, "Exception while registering the recipe:", ex);
+            return false;
+        }
     }
 
     @EventHandler
@@ -200,6 +229,8 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
         }
     }
 
+    // ------------------------------------------------------------------ damage + visuals
+
     /** Sonic boom normally ignores armor and Resistance, so shrink the damage ourselves using vanilla's armor formula. */
     private double scaleDamage(LivingEntity victim, double dmg) {
         if (!armorScaling) return dmg;
@@ -237,6 +268,24 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+
+        // /wardenbeam recipe  -> checks the recipe exists, and tries to register it if it doesn't
+        if (args.length >= 1 && args[0].equalsIgnoreCase("recipe")) {
+            boolean exists = Bukkit.getRecipe(recipeKey) != null;
+            if (!exists) {
+                sender.sendMessage("§eRecipe was missing, trying to register it now...");
+                exists = registerRecipe();
+            }
+            if (exists) {
+                sender.sendMessage("§aWarden Beam Rod recipe is registered.");
+                sender.sendMessage("§7Grid: Sculk, Sculk Catalyst, Sculk / Sculk Sensor, Nether Star, Sculk Shrieker / Sculk, Fishing Rod, Sculk");
+                if (sender instanceof Player p) p.discoverRecipe(recipeKey);
+            } else {
+                sender.sendMessage("§cRecipe could NOT be registered. Check the server console for the error.");
+            }
+            return true;
+        }
+
         // /wardenbeam give [player]
         if (args.length >= 1 && args[0].equalsIgnoreCase("give")) {
             if (!sender.hasPermission("wardenbeam.give")) {
@@ -322,8 +371,8 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
     public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
         if (args.length == 1) {
             String prefix = args[0].toLowerCase();
-            return java.util.stream.Stream.concat(
-                            java.util.stream.Stream.of("give"),
+            return Stream.concat(
+                            Stream.of("give", "recipe"),
                             Bukkit.getOnlinePlayers().stream().map(Player::getName))
                     .filter(s -> s.toLowerCase().startsWith(prefix))
                     .toList();
