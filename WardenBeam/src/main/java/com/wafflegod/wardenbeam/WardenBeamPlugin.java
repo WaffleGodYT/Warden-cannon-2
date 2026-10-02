@@ -64,7 +64,7 @@ public final class WardenBeamPlugin extends JavaPlugin implements TabExecutor, L
     @Override
     public void onEnable() {
         saveDefaultConfig();
-        damage = getConfig().getDouble("damage", 6.0);
+        damage = getConfig().getDouble("damage", 12.0);
         armorScaling = getConfig().getBoolean("armor-scaling", true);
         armorEffectiveness = Math.min(1.0, Math.max(0.0, getConfig().getDouble("armor-effectiveness", 1.0)));
         resistanceScaling = getConfig().getBoolean("resistance-scaling", true);
